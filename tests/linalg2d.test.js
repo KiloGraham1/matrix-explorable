@@ -14,7 +14,10 @@ import {
 	kernelDirection,
 	gridLines,
 	formatNum,
-	F_GLYPH
+	F_GLYPH,
+	inverseColumns,
+	preimage,
+	closestOnSolution
 } from "../src/utils/linalg2d.js";
 
 // Deterministic pseudo-random numbers so failures are reproducible.
@@ -212,4 +215,106 @@ test("formatNum", () => {
 	assert.equal(formatNum(-2), "−2.00");
 	assert.equal(formatNum(-0.0000001), "0.00");
 	assert.equal(formatNum(0.5, 1), "0.5");
+});
+
+test("inverseColumns undoes the map for random invertible matrices", () => {
+	let tested = 0;
+	for (let i = 0; i < 500; i++) {
+		const c1 = randCol();
+		const c2 = randCol();
+		const inv = inverseColumns(c1, c2);
+		if (!inv) continue;
+		tested++;
+		const p = randCol();
+		const back = applyMatrix(inv[0], inv[1], applyMatrix(c1, c2, p));
+		assert.ok(
+			Math.hypot(back[0] - p[0], back[1] - p[1]) < 1e-6,
+			`iteration ${i}`
+		);
+		assert.ok(Math.abs(det2(inv[0], inv[1]) * det2(c1, c2) - 1) < 1e-9);
+	}
+	assert.ok(tested > 400);
+});
+
+test("inverseColumns is null for singular matrices", () => {
+	assert.equal(inverseColumns([1, 2], [2, 4]), null);
+	assert.equal(inverseColumns([0, 0], [0, 0]), null);
+});
+
+test("preimage: invertible matrix gives exactly one input that maps to q", () => {
+	const c1 = [1, -2];
+	const c2 = [2, 0];
+	const r = preimage(c1, c2, [3, 2]);
+	assert.equal(r.kind, "one");
+	assert.ok(Math.hypot(r.p[0] + 1, r.p[1] - 2) < 1e-12); // the explainer's example
+});
+
+test("preimage: rank 1, q on the image line gives a whole line of inputs", () => {
+	for (let i = 0; i < 300; i++) {
+		const c1 = randCol();
+		const c2 = squashTarget(c1, randCol());
+		const t = rand() * 6 - 3;
+		const q = [t * c1[0], t * c1[1]]; // a point on the image line
+		const r = preimage(c1, c2, q);
+		if (Math.hypot(c1[0], c1[1]) < 1e-3) continue; // near-zero first column
+		assert.equal(r.kind, "line", `iteration ${i}`);
+		// every input on the highlighted line really lands on q
+		for (const s of [-5, -1, 0, 2, 7]) {
+			const p = [r.p[0] + s * r.dir[0], r.p[1] + s * r.dir[1]];
+			const out = applyMatrix(c1, c2, p);
+			assert.ok(
+				Math.hypot(out[0] - q[0], out[1] - q[1]) < 1e-6,
+				`iteration ${i}`
+			);
+		}
+	}
+});
+
+test("preimage: rank 1, q off the image line gives no input", () => {
+	const c1 = [1, 2];
+	const c2 = [2, 4];
+	assert.equal(preimage(c1, c2, [1, 0]).kind, "none");
+	assert.equal(preimage(c1, c2, [-2, 1]).kind, "none");
+	assert.equal(preimage(c1, c2, [3, 6]).kind, "line");
+	assert.equal(preimage(c1, c2, [0, 0]).kind, "line"); // the kernel itself
+});
+
+test("preimage: first column zero still works", () => {
+	const r = preimage([0, 0], [3, 1], [6, 2]);
+	assert.equal(r.kind, "line");
+	const out = applyMatrix([0, 0], [3, 1], r.p);
+	assert.ok(Math.hypot(out[0] - 6, out[1] - 2) < 1e-12);
+	assert.equal(preimage([0, 0], [3, 1], [1, 0]).kind, "none");
+});
+
+test("preimage: zero matrix", () => {
+	assert.equal(preimage([0, 0], [0, 0], [0, 0]).kind, "all");
+	assert.equal(preimage([0, 0], [0, 0], [1, 0]).kind, "none");
+});
+
+test("preimage of the origin for a singular matrix is exactly the kernel line", () => {
+	const c1 = [1, -2];
+	const c2 = squashTarget(c1, [2, 0]);
+	const r = preimage(c1, c2, [0, 0]);
+	const k = kernelDirection(c1, c2);
+	assert.equal(r.kind, "line");
+	assert.ok(Math.abs(r.dir[0] * k[1] - r.dir[1] * k[0]) < 1e-12);
+	assert.ok(Math.hypot(r.p[0], r.p[1]) < 1e-12);
+});
+
+test("closestOnSolution keeps the answer on the solution set", () => {
+	const c1 = [1, 2];
+	const c2 = [2, 4];
+	const sol = preimage(c1, c2, [3, 6]);
+	const p = closestOnSolution(sol, [4, 4]);
+	const out = applyMatrix(c1, c2, p);
+	assert.ok(Math.hypot(out[0] - 3, out[1] - 6) < 1e-9);
+	// a point already on the line does not move
+	const again = closestOnSolution(sol, p);
+	assert.ok(Math.hypot(again[0] - p[0], again[1] - p[1]) < 1e-9);
+	// invertible: the single answer; unreachable: p is unchanged
+	assert.deepEqual(closestOnSolution({ kind: "none" }, [2, 3]), [2, 3]);
+	const one = preimage([1, -2], [2, 0], [3, 2]);
+	const c = closestOnSolution(one, [9, 9]);
+	assert.ok(Math.hypot(c[0] + 1, c[1] - 2) < 1e-12);
 });

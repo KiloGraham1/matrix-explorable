@@ -153,3 +153,69 @@ export function formatNum(x, digits = 2) {
 	const v = Math.abs(x) < 0.5 * 10 ** -digits ? 0 : x;
 	return v.toFixed(digits).replace("-", "−");
 }
+
+/**
+ * The columns of the inverse matrix, or null if there is no inverse.
+ * The inverse sends c1 back to (1, 0) and c2 back to (0, 1), and it scales
+ * area by 1/det.
+ */
+export function inverseColumns(c1, c2, eps = SINGULAR_EPS) {
+	const d = det2(c1, c2);
+	if (isSingular(d, eps)) return null;
+	return [
+		[c2[1] / d, -c1[1] / d],
+		[-c2[0] / d, c1[0] / d]
+	];
+}
+
+/**
+ * "Which inputs does this matrix send to the output q?"  This is the question
+ * of undoing the map at q. The answer has one of four shapes:
+ *
+ *  { kind: "one",  p }            invertible: exactly one input, p = A^-1 q
+ *  { kind: "line", p, dir }       rank 1 and q on the image line: every input
+ *                                 p + t*dir lands on q (dir is the kernel)
+ *  { kind: "none" }               q is not in the image: no input reaches it
+ *  { kind: "all" }                zero matrix and q = 0: every input works
+ *
+ * For rank 1, p is the input closest to the origin among the answers.
+ */
+export function preimage(c1, c2, q, eps = SINGULAR_EPS) {
+	const inv = inverseColumns(c1, c2, eps);
+	if (inv) return { kind: "one", p: applyMatrix(inv[0], inv[1], q) };
+
+	const r = rank(c1, c2, eps);
+	if (r === 0) {
+		return Math.hypot(q[0], q[1]) < eps ? { kind: "all" } : { kind: "none" };
+	}
+
+	// rank 1: the image is the line through the origin along u (a nonzero column)
+	const useFirst = Math.hypot(c1[0], c1[1]) > eps;
+	const u = useFirst ? c1 : c2;
+	const uu = u[0] * u[0] + u[1] * u[1];
+	const s = (q[0] * u[0] + q[1] * u[1]) / uu; // q's coordinate along u
+	const miss = Math.hypot(q[0] - s * u[0], q[1] - s * u[1]); // distance to the line
+	if (miss > eps) return { kind: "none" };
+
+	const dir = kernelDirection(c1, c2, eps);
+	// A particular solution, then slide along dir to the point nearest the origin.
+	let p = useFirst ? [s, 0] : [0, s];
+	const along = p[0] * dir[0] + p[1] * dir[1];
+	p = [p[0] - along * dir[0], p[1] - along * dir[1]];
+	return { kind: "line", p, dir };
+}
+
+/**
+ * Pick the point of a preimage() answer that is closest to p. For "one" this
+ * is the single answer, for "line" it is p projected onto the line, otherwise
+ * p is returned unchanged. Used to keep the input marker steady while the
+ * output marker is dragged.
+ */
+export function closestOnSolution(sol, p) {
+	if (sol.kind === "one") return [...sol.p];
+	if (sol.kind === "line") {
+		const t = (p[0] - sol.p[0]) * sol.dir[0] + (p[1] - sol.p[1]) * sol.dir[1];
+		return [sol.p[0] + t * sol.dir[0], sol.p[1] + t * sol.dir[1]];
+	}
+	return [...p];
+}
