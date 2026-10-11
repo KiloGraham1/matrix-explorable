@@ -10,6 +10,7 @@
 	import { loaded } from "$stores";
 	import { gsap, ScrollTrigger } from "$utils/gsap.js";
 	import Footer from "./matrix/Footer.svelte";
+	import DeterminantLab from "./matrix/DeterminantLab.svelte";
 	import mq from "$stores/mq.js";
 	import { RingLoader } from "svelte-loading-spinners";
 	import { colorVector } from "$data/variables";
@@ -59,6 +60,10 @@
 	<Article />
 </article>
 <!-- {/if} -->
+
+<!-- Added: how the determinant relates to invertibility. Sits after the article
+	so it cannot interfere with the sticky canvas and scroll animations above. -->
+<DeterminantLab />
 
 {#if $showPlayground}
 	<TogglePlayground />
